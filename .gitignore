@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+.nuget/NuGet.exe
+*.userprefs
+*.user
+packages/
+*.cache
