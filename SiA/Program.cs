@@ -23,15 +23,45 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-using System;
-
 namespace SiA
 {
-    class MainClass
+    using System;
+    using System.IO;
+    using System.Reflection;
+    using Yarhl.FileFormat;
+    using Yarhl.FileSystem;
+
+    static class Program
     {
         public static void Main(string[] args)
         {
-            Console.WriteLine("Hello World!");
+            Console.WriteLine("SiA -- Decrypter for NoA files");
+            Console.WriteLine("v{0} ~~ by pleonex ~~", Assembly.GetExecutingAssembly().GetName().Version);
+            Console.WriteLine();
+
+            string encryptedFile;
+            if (args.Length != 1) {
+                Console.Write("Encrypted file: ");
+                encryptedFile = Console.ReadLine();
+            } else {
+                encryptedFile = args[0];
+            }
+
+            string decryptedFile = Path.Combine(
+                Path.GetDirectoryName(encryptedFile),
+                Path.GetFileNameWithoutExtension(encryptedFile));
+            Console.WriteLine("Decrypted file: {0}", decryptedFile);
+
+            Decrypt(encryptedFile, decryptedFile);
+
+            Console.WriteLine("Done!");
+        }
+
+        static void Decrypt(string encryptedFile, string decryptedFile)
+        {
+            Node file = NodeFactory.FromFile(encryptedFile);
+            file.Transform<BinaryFormat>(converter: new Decrypter());
+            file.GetFormatAs<BinaryFormat>().Stream.WriteTo(decryptedFile);
         }
     }
 }
