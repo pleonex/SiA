@@ -38,11 +38,11 @@ namespace SiA
 
             BinaryFormat decrypted = new BinaryFormat();
 
-
             // Read the header
             DataReader reader = new DataReader(source.Stream) {
                 Endianness = EndiannessMode.BigEndian
             };
+
             uint format = reader.ReadUInt32();
             reader.ReadUInt32(); // decompressed size
             reader.ReadUInt32(); // reserved
@@ -97,7 +97,6 @@ namespace SiA
 
         static void Round2(DataStream stream)
         {
-            
         }
     }
 }

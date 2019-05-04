@@ -36,7 +36,9 @@ namespace SiA
         public static void Main(string[] args)
         {
             Console.WriteLine("SiA -- Decrypter for NoA files");
-            Console.WriteLine("v{0} ~~ by pleonex ~~", Assembly.GetExecutingAssembly().GetName().Version);
+            Console.WriteLine(
+                "v{0} ~~ by pleonex ~~",
+                Assembly.GetExecutingAssembly().GetName().Version);
             Console.WriteLine();
 
             string encryptedFile;
@@ -59,9 +61,10 @@ namespace SiA
 
         static void Decrypt(string encryptedFile, string decryptedFile)
         {
-            Node file = NodeFactory.FromFile(encryptedFile);
-            file.Transform<BinaryFormat>(converter: new Decrypter());
-            file.GetFormatAs<BinaryFormat>().Stream.WriteTo(decryptedFile);
+            using (Node file = NodeFactory.FromFile(encryptedFile)) {
+                file.TransformWith<Decrypter>();
+                file.Stream.WriteTo(decryptedFile);
+            }
         }
     }
 }
