@@ -56,7 +56,7 @@ namespace SiA
             byte[] data = new byte[source.Stream.Length - HeaderSize];
             source.Stream.Read(data, 0, data.Length);
 
-            // Decrypt
+            // Round 0 only applies to the latest 0x800 bytes
             int round0Size = (data.Length > 0x800) ? 0x800 : data.Length;
             int round0Pos = data.Length - round0Size;
             Round0(0x6d73, 0, 0x100, data, round0Pos);
@@ -66,18 +66,23 @@ namespace SiA
             Compare(data, 1);
 
             // Last Int32 in big endian is used as part of the multiplier
-            // in the generation of random numbers
-            int multiplierInit = (data[data.Length - 4] << 24) |
-                (data[data.Length - 3] << 16) |
-                (data[data.Length - 2] << 8) |
-                (data[data.Length - 1]);
+            // in the generation of random numbers.
+            // The other are the expected checksums.
+            int multiplierInit = GetInt32BE(data, data.Length - 0x4);
+            uint checksum1 = (uint)GetInt32BE(data, data.Length - 0x8);
+            uint checksum2 = (uint)GetInt32BE(data, data.Length - 0xC);
 
             int newSize = Round2(data, multiplierInit);
+            Array.Resize(ref data, newSize);
             Compare(data, 2);
 
-            Array.Resize(ref data, newSize);
+            Validate(data, checksum1, checksum2);
+
             Round0(0x728F, multiplierInit, 0x80, data, 0);
             Compare(data, 3);
+
+            Round4(data);
+            Compare(data, 4);
 
             return new BinaryFormat(data, 0, data.Length);
         }
@@ -93,6 +98,7 @@ namespace SiA
                         string tempFile = Path.Combine(basePath, "temp.bin");
                         source.WriteTo(tempFile);
                         Console.WriteLine($"!! Error on round {round} !!");
+                        Environment.Exit(1);
                     }
                 }
             }
@@ -171,7 +177,7 @@ namespace SiA
                 t1 = (t1 >> 11) * 0x1352;
 
                 // Decrypt
-                ushort value = (ushort)((data[pos] << 8) | data[pos + 1]);
+                ushort value = (ushort)GetUInt16BE(data, pos);
 
                 if (t0 - t1 >= 0x9A9)
                     value ^= t0;
@@ -220,12 +226,48 @@ namespace SiA
             if (data[pos] != 0xFF)
                 throw new FormatException("Error decrypting round 2");
 
+            // Ok good, then we can overwrite as 0
+            data[pos] = 0x00;
+
             return size;
         }
 
-        static void Validate(DataStream stream)
+        static void Validate(byte[] data, uint expected1, uint expected2)
         {
+            uint checksum1 = 0;
+            uint checksum2 = 0;
+            for (int i = 0; i < data.Length / 4; i++) {
+                uint value = (uint)GetInt32BE(data, i * 4);
+                checksum1 ^= ~value;
+                checksum2 -= value;
+            }
 
+            if (checksum1 != expected1)
+                throw new FormatException("Invalid checksum 1");
+
+            if (checksum2 != expected2)
+                throw new FormatException("Invalid checksum 2");
+        }
+
+        static void Round4(byte[] data)
+        {
+            // Read header
+            int decompressedSize = GetInt32BE(data, 0);
+            int dataOffset = GetInt32BE(data, 4);
+            int totalSize = GetInt32BE(data, 8);
+        }
+
+        static int GetInt32BE(byte[] data, int offset)
+        {
+            return (data[offset] << 24) |
+                (data[offset + 1] << 16) |
+                (data[offset + 2] << 8) |
+                data[offset + 3];
+        }
+
+        static ushort GetUInt16BE(byte[] data, int offset)
+        {
+            return (ushort)((data[offset] << 8) | data[offset + 1]);
         }
     }
 }
