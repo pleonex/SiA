@@ -18,6 +18,6 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Yarhl" Version="3.0.0-alpha-binary03" />
+    <PackageReference Include="Yarhl" Version="3.0.0-alpha-binary04" />
   </ItemGroup>
 </Project>

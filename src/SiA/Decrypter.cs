@@ -55,45 +55,52 @@ namespace SiA
 
             byte[] data = new byte[source.Stream.Length - HeaderSize];
             source.Stream.Read(data, 0, data.Length);
-            DataStream decrypted = new DataStream(data, 0, data.Length);
 
             // Decrypt
             int round0Size = (data.Length > 0x800) ? 0x800 : data.Length;
             int round0Pos = data.Length - round0Size;
-            Round0(0x6d73, 0x100, data, round0Pos);
-            Compare(decrypted, 0);
+            Round0(0x6d73, 0, 0x100, data, round0Pos);
+            Compare(data, 0);
 
-            Round1(decrypted);
-            Compare(decrypted, 1);
+            Round1(data);
+            Compare(data, 1);
 
-            int newSize = Round2(data);
-            Compare(decrypted, 2);
+            // Last Int32 in big endian is used as part of the multiplier
+            // in the generation of random numbers
+            int multiplierInit = (data[data.Length - 4] << 24) |
+                (data[data.Length - 3] << 16) |
+                (data[data.Length - 2] << 8) |
+                (data[data.Length - 1]);
 
-            Round0(0x728F, 0x80, data, 0);
-            Compare(decrypted, 3);
+            int newSize = Round2(data, multiplierInit);
+            Compare(data, 2);
 
-            BinaryFormat binary = new BinaryFormat(decrypted);
-            decrypted.Dispose();
-            return binary;
+            Array.Resize(ref data, newSize);
+            Round0(0x728F, multiplierInit, 0x80, data, 0);
+            Compare(data, 3);
+
+            return new BinaryFormat(data, 0, data.Length);
         }
 
-        static void Compare(DataStream source, int round)
+        static void Compare(byte[] data, int round)
         {
             string basePath = Environment.GetEnvironmentVariable("SIA_WORKDIR");
             string filePath = Path.Combine(basePath, $"round{round}_f.bin");
 
             using (var original = new DataStream(filePath, FileOpenMode.Read)) {
-                if (!original.Compare(source)) {
-                    string tempFile = Path.Combine(basePath, "temp.bin");
-                    source.WriteTo(tempFile);
-                    Console.WriteLine($"!! Error on round {round} !!");
+                using (var source = new DataStream(data, 0, data.Length)) {
+                    if (!original.Compare(source)) {
+                        string tempFile = Path.Combine(basePath, "temp.bin");
+                        source.WriteTo(tempFile);
+                        Console.WriteLine($"!! Error on round {round} !!");
+                    }
                 }
             }
         }
 
-        static void Round0(int seed, int maxBlockSize, byte[] data, int offset)
+        static void Round0(int seed, int multiplierInit, int maxBlockSize, byte[] data, int offset)
         {
-            var random = new RandomGenerator(seed);
+            var random = new RandomGenerator(seed, multiplierInit);
 
             IList<ushort> numbers = new List<ushort>(maxBlockSize * 8);
             ushort[] buffer = new ushort[maxBlockSize * 8];
@@ -153,36 +160,29 @@ namespace SiA
             }
         }
 
-        static void Round1(DataStream source)
+        static void Round1(byte[] data)
         {
-            source.Seek(0);
-
-            DataWriter writer = new DataWriter(source);
-            writer.Endianness = EndiannessMode.BigEndian;
-
-            DataReader reader = new DataReader(source);
-            reader.Endianness = EndiannessMode.BigEndian;
-
             var random = new RandomGenerator(0xC979);
-            while (!source.EndOfStream) {
+            int pos = 0;
+            while (pos + 1 < data.Length) {
                 // Get key component for this iteration
                 ushort t0 = random.NextHigh();
                 uint t1 = (uint)((t0 * 0x6A009F01L) >> 32);
                 t1 = (t1 >> 11) * 0x1352;
 
                 // Decrypt
-                ushort data = reader.ReadUInt16();
-                source.Position -= 2;
+                ushort value = (ushort)((data[pos] << 8) | data[pos + 1]);
 
                 if (t0 - t1 >= 0x9A9)
-                    data ^= t0;
-                data -= t0;
+                    value ^= t0;
+                value -= t0;
 
-                writer.Write(data);
+                data[pos++] = (byte)(value >> 8);
+                data[pos++] = (byte)(value & 0xFF);
             }
         }
 
-        static int Round2(byte[] data)
+        static int Round2(byte[] data, int multiplierInit)
         {
             // Search end of data to get the encryption size
             int size = data.Length - 0xD;
@@ -192,13 +192,6 @@ namespace SiA
             // The last byte of the data must be 0xFF
             if (data[size] != 0xFF)
                 throw new FormatException("Invalid stream");
-
-            // Last Int32 in big endian is used as part of the multiplier
-            // in the generation of random numbers
-            int multiplierInit = (data[data.Length - 4] << 24) |
-                (data[data.Length - 3] << 16) |
-                (data[data.Length - 2] << 8) |
-                (data[data.Length - 1]);
 
             // For each block, there is a different random number generator
             int[] blockSizes = { 0x1F, 0x1D, 0x17 };
