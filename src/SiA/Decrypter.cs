@@ -26,21 +26,19 @@
 namespace SiA
 {
     using System;
+    using System.Collections.Generic;
+    using System.IO;
     using Yarhl.FileFormat;
     using Yarhl.IO;
 
     public class Decrypter : IConverter<BinaryFormat, BinaryFormat>
     {
-        uint key1;
-        uint key2;
+        const int HeaderSize = 0x10;
 
         public BinaryFormat Convert(BinaryFormat source)
         {
             if (source == null)
                 throw new ArgumentNullException(nameof(source));
-
-            BinaryFormat decrypted = new BinaryFormat();
-            source.Stream.WriteTo(decrypted.Stream);
 
             // Read the header
             DataReader reader = new DataReader(source.Stream) {
@@ -48,216 +46,188 @@ namespace SiA
             };
 
             uint format = reader.ReadUInt32();
-            reader.ReadUInt32(); // decompressed size
+            uint decompressedSize = reader.ReadUInt32(); // decompressed size
             reader.ReadUInt32(); // reserved
             reader.ReadUInt32(); // reserved
 
             if (format != 2)
                 throw new FormatException("Unknown format " + format);
 
-            // Initialize the keys
-            key1 = 0x3b9a73c9;
-            key2 = 0xc979;
+            byte[] data = new byte[source.Stream.Length - HeaderSize];
+            source.Stream.Read(data, 0, data.Length);
+            DataStream decrypted = new DataStream(data, 0, data.Length);
 
             // Decrypt
-            int size = (source.Stream.Length - 0x10 > 0x800)
-                ? 0x800
-                : (int)source.Stream.Length - 0x10;
-            Round0(decrypted.Stream, 0x6d73, 0x100, (int)source.Stream.Length - size, size);
-            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round0.bin");
+            int round0Size = (data.Length > 0x800) ? 0x800 : data.Length;
+            int round0Pos = data.Length - round0Size;
+            Round0(0x6d73, 0x100, data, round0Pos);
+            Compare(decrypted, 0);
 
-            decrypted.Stream.Position = 0x10;
-            Round1(decrypted.Stream);
-            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round1.bin");
+            Round1(decrypted);
+            Compare(decrypted, 1);
 
-            int newSize = Round2(decrypted.Stream);
-            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round2.bin");
+            int newSize = Round2(data);
+            Compare(decrypted, 2);
 
-            int size2 = (newSize > 0x800)
-                ? 0x800
-                : newSize;
-            Round0(decrypted.Stream, 0x728F, 0x80, 0x10, size2);
+            Round0(0x728F, 0x80, data, 0);
+            Compare(decrypted, 3);
 
-            return decrypted;
+            BinaryFormat binary = new BinaryFormat(decrypted);
+            decrypted.Dispose();
+            return binary;
         }
 
-        void Round0(DataStream source, uint key, int maxBlockSize, int pos, int size)
+        static void Compare(DataStream source, int round)
         {
-            const int MaxIterations = 8;
+            string basePath = Environment.GetEnvironmentVariable("SIA_WORKDIR");
+            string filePath = Path.Combine(basePath, $"round{round}_f.bin");
 
-            // In this round we only decrypt the latest 0x800 bytes
-            int encryptedSize = size;
-            source.PushToPosition(pos, SeekMode.Start);
-
-            key2 = key;
-
-            ushort[] s1 = new ushort[maxBlockSize * 8];
-            ushort[] s2 = new ushort[maxBlockSize * 8];
-
-            while (encryptedSize > 0) {
-                int blockSize = (encryptedSize > maxBlockSize)
-                    ? maxBlockSize
-                    : encryptedSize;
-
-                // Initialize buffer S1
-                for (ushort i = 0; i < blockSize * 8; i++) {
-                    s1[i] = i;
+            using (var original = new DataStream(filePath, FileOpenMode.Read)) {
+                if (!original.Compare(source)) {
+                    string tempFile = Path.Combine(basePath, "temp.bin");
+                    source.WriteTo(tempFile);
+                    Console.WriteLine($"!! Error on round {round} !!");
                 }
-
-                // Initialize buffer S2 by permutating S1 with a PRGA
-                int s1Index = blockSize * 8;
-                for (ushort i = 0; i < blockSize * 8; i++) {
-                    // Update the key with a LCG
-                    key2 = (key1 * key2) + 0x2f09;
-                    int index = ((int)key2 >> 0x10) & 0x7FFF;
-
-                    index %= s1Index;
-                    s2[i] = s1[index];
-
-                    Array.Copy(s1, index + 1, s1, index, s1Index - index - 1);
-                    s1Index--;
-                }
-
-                for (int i = 0; i < blockSize * 4; i++) {
-                    ushort k1 = s2[i * 2];
-                    uint k1_1 = k1 & 7u;
-                    uint k1_2 = (uint)((int)k1 >> 3);
-
-                    ushort k2 = s2[(i * 2) + 1];
-                    uint k2_1 = k2 & 7u;
-                    uint k2_2 = (uint)((int)k2 >> 3);
-
-                    byte k1_3 = (byte)(1 << (int)k1_1);
-                    source.PushToPosition(k1_2, SeekMode.Current);
-                    byte b1 = source.ReadByte();
-                    uint b1_2 = (uint)(b1 & k1_3);
-                    byte b1_w = (byte)(~k1_3);
-                    byte b1_3 = (byte)(b1 & b1_w);
-                    source.Position--;
-                    source.WriteByte(b1_3);
-                    source.PopPosition();
-
-                    byte k2_3 = (byte)(1 << (int)k2_1);
-                    source.PushToPosition(k2_2, SeekMode.Current);
-                    byte b2 = source.ReadByte();
-                    uint b2_2 = (uint)(b2 & k2_3);
-                    byte b2_w = (byte)(~k2_3);
-                    byte b2_3 = (byte)(b2 & b2_w);
-                    source.Position--;
-                    source.WriteByte(b2_3);
-                    source.PopPosition();
-
-                    b2_2 = (uint)(b2_2 >> (int)k2_1);
-                    b2_2 = (uint)(b2_2 << (int)k1_1);
-                    source.PushToPosition(k1_2, SeekMode.Current);
-                    byte o1 = source.ReadByte();
-                    byte mix1 = (byte)(b2_2 | o1);
-                    source.Position--;
-                    source.WriteByte(mix1);
-                    source.PopPosition();
-
-                    b1_2 = (uint)(b1_2 >> (int)k1_1);
-                    b1_2 = (b1_2 << (int)k2_1);
-                    source.PushToPosition(k2_2, SeekMode.Current);
-                    byte o2 = source.ReadByte();
-                    byte mix2 = (byte)(b1_2 | o2);
-                    source.Position--;
-                    source.WriteByte(mix2);
-                    source.PopPosition();
-                }
-
-                source.Seek(blockSize, SeekMode.Current);
-                encryptedSize -= blockSize;
             }
+        }
 
-            source.PopPosition();
+        static void Round0(int seed, int maxBlockSize, byte[] data, int offset)
+        {
+            var random = new RandomGenerator(seed);
+
+            IList<ushort> numbers = new List<ushort>(maxBlockSize * 8);
+            ushort[] buffer = new ushort[maxBlockSize * 8];
+
+            int MaxSize = 0x800;
+            int size = (MaxSize > data.Length) ? data.Length : MaxSize;
+
+            int blockPos = offset;
+            while (size > 0) {
+                int blockSize = (size > maxBlockSize) ? maxBlockSize : size;
+
+                // Initialize a list with all the possible numbers for this block
+                numbers.Clear();
+                for (ushort i = 0; i < blockSize * 8; i++) {
+                    numbers.Add(i);
+                }
+
+                // Initialize buffer permutating the numbers via random generator
+                for (ushort i = 0; i < blockSize * 8; i++) {
+                    int index = random.NextHigh() % numbers.Count;
+                    buffer[i] = numbers[index];
+                    numbers.RemoveAt(index);
+                }
+
+                // Flags:
+                // - Bit 0-2: mask
+                // - Bit 3-15: position
+                for (int i = 0; i < blockSize * 4; i++) {
+                    // Flag 1
+                    ushort flags1 = buffer[i * 2];
+                    int mask1 = flags1 & 7;
+                    int pos1 = flags1 >> 3;
+
+                    int mask = 1 << mask1;
+                    int bitsForPos2 = data[blockPos + pos1] & mask;
+                    data[blockPos + pos1] &= (byte)(~mask);
+
+                    // Flags 2
+                    ushort flags2 = buffer[(i * 2) + 1];
+                    int mask2 = flags2 & 7;
+                    int pos2 = flags2 >> 3;
+
+                    mask = 1 << mask2;
+                    int bitsForPos1 = data[blockPos + pos2] & mask;
+                    data[blockPos + pos2] &= (byte)(~mask);
+
+                    // Mix bits
+                    bitsForPos1 = (bitsForPos1 >> mask2) << mask1;
+                    data[blockPos + pos1] |= (byte)bitsForPos1;
+
+                    bitsForPos2 = (bitsForPos2 >> mask1) << mask2;
+                    data[blockPos + pos2] |= (byte)bitsForPos2;
+                }
+
+                blockPos += blockSize;
+                size -= blockSize;
+            }
         }
 
         static void Round1(DataStream source)
         {
-            source.PushCurrentPosition();
-            DataWriter writer = new DataWriter(source) {
-                Endianness = EndiannessMode.BigEndian
-            };
-            DataReader reader = new DataReader(source) {
-                Endianness = EndiannessMode.BigEndian
-            };
+            source.Seek(0);
 
-            // Initialize the keys
-            uint key1 = 0x3B9A73C9;
-            uint key2 = 0x0000C979;
+            DataWriter writer = new DataWriter(source);
+            writer.Endianness = EndiannessMode.BigEndian;
 
+            DataReader reader = new DataReader(source);
+            reader.Endianness = EndiannessMode.BigEndian;
+
+            var random = new RandomGenerator(0xC979);
             while (!source.EndOfStream) {
-                // Update key
-                key2 = (key1 * key2) + 0x2F09;
-
                 // Get key component for this iteration
-                uint t0 = (uint)((int)key2 >> 16) & 0x7FFF;  // shift arithmetical
-                uint tm = (uint)(((ulong)t0 * 0x6A009F01) >> 32);
-                uint t1 = tm >> 11; // shift logical
-                t1 *= 0x1352u;
+                ushort t0 = random.NextHigh();
+                uint t1 = (uint)((t0 * 0x6A009F01L) >> 32);
+                t1 = (t1 >> 11) * 0x1352;
 
                 // Decrypt
-                uint data = reader.ReadUInt16();
+                ushort data = reader.ReadUInt16();
                 source.Position -= 2;
 
                 if (t0 - t1 >= 0x9A9)
-                    data ^= (ushort)t0;
-                data -= (ushort)t0;
+                    data ^= t0;
+                data -= t0;
 
-                writer.Write((ushort)data);
+                writer.Write(data);
             }
-
-            // Return to the start position for next round
-            source.PopPosition();
         }
 
-        static int Round2(DataStream stream)
+        static int Round2(byte[] data)
         {
-            uint[] keys = { 0xa9bb, 0x892d, 0x8939 };
-            int[] blockSizes = { 0x1f, 0x1d, 0x17 };
+            // Search end of data to get the encryption size
+            int size = data.Length - 0xD;
+            while (data[size] == 0x00)
+                size--;
 
-            DataReader reader = new DataReader(stream) {
-                Endianness = EndiannessMode.BigEndian
-            };
-
-            stream.Seek(0xC + 1, SeekMode.End);
-            while (reader.ReadByte() == 0x00)
-                stream.Position -= 2;
-
-            stream.Position--;
-            if (reader.ReadByte() != 0xFF)
+            // The last byte of the data must be 0xFF
+            if (data[size] != 0xFF)
                 throw new FormatException("Invalid stream");
 
-            int size = (int)stream.Position - 1 - 0x10;
-            int returnSize = size;
+            // Last Int32 in big endian is used as part of the multiplier
+            // in the generation of random numbers
+            int multiplierInit = (data[data.Length - 4] << 24) |
+                (data[data.Length - 3] << 16) |
+                (data[data.Length - 2] << 8) |
+                (data[data.Length - 1]);
 
-            stream.Seek(4, SeekMode.End);
-            uint key1 = reader.ReadUInt32();
-            key1 += 0x3b9a73c9;
+            // For each block, there is a different random number generator
+            int[] blockSizes = { 0x1F, 0x1D, 0x17 };
+            var generators = new RandomGenerator[] {
+                new RandomGenerator(0xA9BB, multiplierInit),
+                new RandomGenerator(0x892D, multiplierInit),
+                new RandomGenerator(0x8939, multiplierInit)
+            };
 
-            stream.Position = 0x10;
-            int idx = 0;
-            while (size > 0) {
-                uint key2 = keys[idx % 3];
-                int blockSize = blockSizes[idx % 3];
-                blockSize += idx / 3;
+            int blockIdx = 0;
+            int pos = 0;
+            while (pos < size) {
+                var generator = generators[blockIdx % 3];
+                int blockSize = blockSizes[blockIdx % 3];
+                blockSize += blockIdx / 3;
 
-                for (int j = 0; j < blockSize && size > 0; j++) {
-                    key2 = (key1 * key2) + 0x2f09;
-                    byte key = (byte)((key2 >> 0x10) & 0xFF);
-                    byte b = stream.ReadByte();
-                    stream.Position--;
-                    b ^= key;
-                    stream.WriteByte(b);
-                    size--;
+                for (int j = 0; j < blockSize && pos < size; j++) {
+                    byte key = (byte)(generator.NextHigh() & 0xFF);
+                    data[pos++] ^= key;
                 }
 
-                keys[idx % 3] = key2;
-                idx++;
+                blockIdx++;
             }
 
-            return returnSize;
+            // Double check that we end with this file
+            if (data[pos] != 0xFF)
+                throw new FormatException("Error decrypting round 2");
+
+            return size;
         }
 
         static void Validate(DataStream stream)
