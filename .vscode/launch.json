@@ -1,0 +1,20 @@
+{
+   "version": "0.2.0",
+   "configurations": [
+        {
+            "name": ".NET Core Launch (console)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            // If you have changed target frameworks, make sure to update the program path.
+            "program": "${workspaceFolder}/src/SiA/bin/Debug/netcoreapp2.2/SiA.dll",
+            "args": ["${workspaceFolder}/data/fm_gimmick_obj_alpha.xml.e"],
+            "cwd": "${workspaceFolder}/src/SiA",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "SIA_WORKDIR": "${workspaceFolder}/data"
+            }
+        }
+    ]
+}
