@@ -5,3 +5,5 @@
 *.user
 packages/
 *.cache
+docs/*
+.vscode/

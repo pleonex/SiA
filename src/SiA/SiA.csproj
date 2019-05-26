@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>exe</OutputType>
+    <AssemblyName>SiA</AssemblyName>
+    <Description>Tool to decrypt XML files from Night of Azure.</Description>
+    <Version>1.0.0</Version>
+
+    <Authors>pleonex</Authors>
+    <Copyright>Copyright (c) 2018 Benito Palacios Sanchez (pleonex)</Copyright>
+    <RepositoryUrl>https://github.com/pleonex/SiA</RepositoryUrl>
+    <License>GPL-3.0-or-later</License>
+    <PackageProjectUrl>https://github.com/pleonex/SiA</PackageProjectUrl>
+    <PackageTags>translation;localization;romhacking;fan-translation</PackageTags>
+
+    <TargetFrameworks>net472;netcoreapp2.2</TargetFrameworks>
+    <RootNamespace>SiA</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Yarhl" Version="3.0.0-alpha02" />
+  </ItemGroup>
+</Project>
