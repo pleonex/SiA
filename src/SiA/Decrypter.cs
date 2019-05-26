@@ -60,35 +60,43 @@ namespace SiA
             key2 = 0xc979;
 
             // Decrypt
-            Round0(decrypted.Stream, 0x6d73);
+            int size = (source.Stream.Length - 0x10 > 0x800)
+                ? 0x800
+                : (int)source.Stream.Length - 0x10;
+            Round0(decrypted.Stream, 0x6d73, 0x100, (int)source.Stream.Length - size, size);
+            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round0.bin");
 
             decrypted.Stream.Position = 0x10;
             Round1(decrypted.Stream);
+            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round1.bin");
 
-            Round2(decrypted.Stream);
+            int newSize = Round2(decrypted.Stream);
+            decrypted.Stream.WriteTo(@"C:\Users\benit\Downloads\round2.bin");
+
+            int size2 = (newSize > 0x800)
+                ? 0x800
+                : newSize;
+            Round0(decrypted.Stream, 0x728F, 0x80, 0x10, size2);
 
             return decrypted;
         }
 
-        void Round0(DataStream source, uint key)
+        void Round0(DataStream source, uint key, int maxBlockSize, int pos, int size)
         {
-            const int MaxBlockSize = 0x100;
             const int MaxIterations = 8;
 
             // In this round we only decrypt the latest 0x800 bytes
-            int encryptedSize = (source.Length - 0x10 > (MaxIterations * MaxBlockSize))
-                ? MaxIterations * MaxBlockSize
-                : (int)source.Length - 0x10;
-            source.PushToPosition(encryptedSize, SeekMode.End);
+            int encryptedSize = size;
+            source.PushToPosition(pos, SeekMode.Start);
 
             key2 = key;
 
-            ushort[] s1 = new ushort[MaxBlockSize * 8];
-            ushort[] s2 = new ushort[MaxBlockSize * 8];
+            ushort[] s1 = new ushort[maxBlockSize * 8];
+            ushort[] s2 = new ushort[maxBlockSize * 8];
 
-            while (source.Position < source.Length) {
-                int blockSize = (encryptedSize > MaxBlockSize)
-                    ? MaxBlockSize
+            while (encryptedSize > 0) {
+                int blockSize = (encryptedSize > maxBlockSize)
+                    ? maxBlockSize
                     : encryptedSize;
 
                 // Initialize buffer S1
@@ -204,8 +212,52 @@ namespace SiA
             source.PopPosition();
         }
 
-        static void Round2(DataStream stream)
+        static int Round2(DataStream stream)
         {
+            uint[] keys = { 0xa9bb, 0x892d, 0x8939 };
+            int[] blockSizes = { 0x1f, 0x1d, 0x17 };
+
+            DataReader reader = new DataReader(stream) {
+                Endianness = EndiannessMode.BigEndian
+            };
+
+            stream.Seek(0xC + 1, SeekMode.End);
+            while (reader.ReadByte() == 0x00)
+                stream.Position -= 2;
+
+            stream.Position--;
+            if (reader.ReadByte() != 0xFF)
+                throw new FormatException("Invalid stream");
+
+            int size = (int)stream.Position - 1 - 0x10;
+            int returnSize = size;
+
+            stream.Seek(4, SeekMode.End);
+            uint key1 = reader.ReadUInt32();
+            key1 += 0x3b9a73c9;
+
+            stream.Position = 0x10;
+            int idx = 0;
+            while (size > 0) {
+                uint key2 = keys[idx % 3];
+                int blockSize = blockSizes[idx % 3];
+                blockSize += idx / 3;
+
+                for (int j = 0; j < blockSize && size > 0; j++) {
+                    key2 = (key1 * key2) + 0x2f09;
+                    byte key = (byte)((key2 >> 0x10) & 0xFF);
+                    byte b = stream.ReadByte();
+                    stream.Position--;
+                    b ^= key;
+                    stream.WriteByte(b);
+                    size--;
+                }
+
+                keys[idx % 3] = key2;
+                idx++;
+            }
+
+            return returnSize;
         }
 
         static void Validate(DataStream stream)
