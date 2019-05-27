@@ -7,11 +7,12 @@
             "request": "launch",
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/src/SiA/bin/Debug/netcoreapp2.2/SiA.dll",
-            "args": ["${workspaceFolder}/data/fm_gimmick_obj_alpha.xml.e"],
+            "args": ["-f", "${workspaceFolder}/data/fm_gimmick_obj_alpha.xml.e"],
             "cwd": "${workspaceFolder}/src/SiA",
             "console": "internalConsole",
             "stopAtEntry": false,
             "env": {
+                "SIA_DEBUG": "true",
                 "SIA_WORKDIR": "${workspaceFolder}/data"
             }
         }

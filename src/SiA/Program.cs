@@ -41,22 +41,38 @@ namespace SiA
                 Assembly.GetExecutingAssembly().GetName().Version);
             Console.WriteLine();
 
-            string encryptedFile;
-            if (args.Length != 1) {
-                Console.Write("Encrypted file: ");
-                encryptedFile = Console.ReadLine();
-            } else {
-                encryptedFile = args[0];
+            if (args.Length == 0 || args[0] == "-h" || args[0] == "--help") {
+                PrintHelp();
             }
 
-            string decryptedFile = Path.Combine(
-                Path.GetDirectoryName(encryptedFile),
-                Path.GetFileNameWithoutExtension(encryptedFile));
-            Console.WriteLine("Decrypted file: {0}", decryptedFile);
-
-            Decrypt(encryptedFile, decryptedFile);
+            string mode = args[0];
+            if (mode == "-f" && args.Length == 2) {
+                string input = Path.GetFullPath(args[1]);
+                string output = Path.Combine(
+                    Path.GetDirectoryName(input),
+                    Path.GetFileNameWithoutExtension(input));
+                Console.WriteLine($"Decrypting to {output}");
+                Decrypt(input, output);
+            } else if (mode == "-d" && args.Length == 3) {
+                string input = Path.GetFullPath(args[1]);
+                string output = Path.GetFullPath(args[2]);
+                DecryptFolder(input, output);
+            } else {
+                PrintHelp();
+            }
 
             Console.WriteLine("Done!");
+        }
+
+        static void PrintHelp()
+        {
+            Console.WriteLine("USAGE:");
+            Console.WriteLine("* Decrypt file: SiA.exe -f file_path");
+            Console.WriteLine("* Decrypt all files from dir: SiA.exe -d inDir outDir");
+
+            Console.WriteLine("Press enter to quit");
+            Console.ReadLine();
+            Environment.Exit(1);
         }
 
         static void Decrypt(string encryptedFile, string decryptedFile)
@@ -64,6 +80,23 @@ namespace SiA
             using (Node file = NodeFactory.FromFile(encryptedFile)) {
                 file.TransformWith<Decrypter>();
                 file.Stream.WriteTo(decryptedFile);
+            }
+        }
+
+        static void DecryptFolder(string inFolder, string outFolder)
+        {
+            var encryptedFiles = Directory.EnumerateFiles(
+                inFolder,
+                "*.xml.e",
+                SearchOption.AllDirectories);
+            foreach (var encrypted in encryptedFiles) {
+                string name = Path.GetFileNameWithoutExtension(encrypted);
+                string directory = Path.GetDirectoryName(encrypted);
+                string relative = directory.Remove(0, inFolder.Length + 1);
+                string output = Path.Combine(outFolder, relative, name);
+
+                Console.WriteLine($"* {relative}/{name}");
+                Decrypt(encrypted, output);
             }
         }
     }

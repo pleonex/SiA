@@ -89,6 +89,9 @@ namespace SiA
 
         static void Compare(byte[] data, int round)
         {
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SIA_DEBUG")))
+                return;
+
             string basePath = Environment.GetEnvironmentVariable("SIA_WORKDIR");
             string filePath = Path.Combine(basePath, $"round{round}_f.bin");
 
