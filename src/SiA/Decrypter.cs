@@ -81,7 +81,7 @@ namespace SiA
             Round0(0x728F, multiplierInit, 0x80, data, 0);
             Compare(data, 3);
 
-            Round4(data);
+            data = Round4(data);
             Compare(data, 4);
 
             return new BinaryFormat(data, 0, data.Length);
@@ -249,12 +249,118 @@ namespace SiA
                 throw new FormatException("Invalid checksum 2");
         }
 
-        static void Round4(byte[] data)
+        static byte[] Round4(byte[] data)
         {
-            // Read header
             int decompressedSize = GetInt32BE(data, 0);
-            int dataOffset = GetInt32BE(data, 4);
-            int totalSize = GetInt32BE(data, 8);
+            byte[] output = new byte[decompressedSize];
+            int outPos = 0;
+
+            // Decompress control flags
+            int flagsSize = GetInt32BE(data, 0x04);
+            byte[] flags = UnpackFlags(data, 0x08);
+            int flagsPos = 0;
+            Compare(flags, 5);
+
+            int rawSize = GetInt32BE(data, 0x08 + flagsSize);
+            int rawPos = 0x08 + flagsSize + 4;
+
+            int lengthSize = GetInt32BE(data, rawPos + rawSize);
+            int lengthPos = rawPos + rawSize + 4;
+
+            int pos;
+            int length;
+            while (outPos < decompressedSize) {
+                switch (flags[flagsPos++]) {
+                case 1:
+                    output[outPos++] = data[rawPos++];
+                    break;
+
+                case 2:
+                    pos = flags[flagsPos++];
+                    output[outPos] = output[outPos - pos];
+                    outPos++;
+                    break;
+
+                case 3:
+                    pos = flags[flagsPos] + flags[flagsPos + 1];
+                    length = flags[flagsPos + 1] + 1;
+                    flagsPos += 2;
+                    for (int i = 0; i < length; i++, outPos++)
+                        output[outPos] = output[outPos - pos];
+                    break;
+
+                case 4:
+                    length = flags[flagsPos] + 1;
+                    pos = data[rawPos++] + flags[flagsPos];
+                    flagsPos++;
+                    for (int i = 0; i < length; i++, outPos++)
+                        output[outPos] = output[outPos - pos];
+                    break;
+
+                case 5:
+                    length = flags[flagsPos + 1] + 1;
+                    pos = (flags[flagsPos] * 256) + flags[flagsPos + 1] + data[rawPos++];
+                    flagsPos += 2;
+                    for (int i = 0; i < length; i++, outPos++)
+                        output[outPos] = output[outPos - pos];
+                    break;
+
+                case 6:
+                    length = flags[flagsPos++] + 0x08;
+                    Array.Copy(data, rawPos, output, outPos, length);
+                    rawPos += length;
+                    outPos += length;
+                    break;
+
+                case 7:
+                    length = data[lengthPos++] + 0x0E;
+                    Array.Copy(data, rawPos, output, outPos, length);
+                    rawPos += length;
+                    outPos += length;
+                    break;
+                }
+            }
+
+            return output;
+        }
+
+        static byte[] UnpackFlags(byte[] data, int offset)
+        {
+            int size = GetInt32BE(data, offset);
+            byte[] flags = new byte[size];
+            int pos = 0;
+
+            BitReader reader = new BitReader(data);
+            reader.Position = (offset + 4) * 8;
+
+            while (pos < size) {
+                if (reader.Read() == 1) {
+                    flags[pos++] = 1;
+                } else {
+                    // The number of bits that creates next byte
+                    // is given by the number of 0 here.
+                    int count = 1;
+                    while (reader.Read() == 0 && count < 8) {
+                        count++;
+                    }
+                    reader.Position--;
+
+                    if (count < 8) {
+                        // Combine the bits for the next byte
+                        byte value = 0;
+                        for (int i = count; i >= 0; i--) {
+                            int bit = reader.Read();
+                            value |= (byte)(bit << i);
+                        }
+                        flags[pos++] = value;
+                    } else {
+                        // If count is 8 it means a full byte
+                        flags[pos++] = 0xFF;
+                    }
+                }
+            }
+
+            return flags;
         }
 
         static int GetInt32BE(byte[] data, int offset)
