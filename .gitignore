@@ -7,3 +7,5 @@ packages/
 *.cache
 docs/*
 data/
+/src/.vs/SiA
+/.vs
