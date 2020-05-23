@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-namespace SiA
+namespace SiA.Library
 {
     using System;
     using System.Collections.Generic;
@@ -84,7 +84,7 @@ namespace SiA
             data = Round4(data);
             Compare(data, 4);
 
-            return new BinaryFormat(data, 0, data.Length);
+            return new BinaryFormat(DataStreamFactory.FromArray(data, 0, data.Length));
         }
 
         static void Compare(byte[] data, int round)
@@ -95,8 +95,8 @@ namespace SiA
             string basePath = Environment.GetEnvironmentVariable("SIA_WORKDIR");
             string filePath = Path.Combine(basePath, $"round{round}_f.bin");
 
-            using (var original = new DataStream(filePath, FileOpenMode.Read)) {
-                using (var source = new DataStream(data, 0, data.Length)) {
+            using (var original = DataStreamFactory.FromFile(filePath, FileOpenMode.Read)) {
+                using (var source = DataStreamFactory.FromArray(data, 0, data.Length)) {
                     if (!original.Compare(source)) {
                         string tempFile = Path.Combine(basePath, "temp.bin");
                         source.WriteTo(tempFile);
